@@ -53,6 +53,7 @@ createApp({
     const user=ref(localStorage.getItem('contractlab_user')||'');
     const username=ref('admin'), password=ref('123456'), err=ref(''), tab=ref(0), actionErr=ref('');
     const contracts=ref([]), batches=ref([]), buffers=ref([]), recon=ref({});
+    const log=ref([]), catErr=ref('');
     const form=ref({subject:'订单入站', payload_fields:'order_id,amount'});
     const nav=['契约版本','入站校验','双写缓冲','契约对账'];
     function auth(){return {Authorization:'Bearer '+token.value,'Content-Type':'application/json'};}
@@ -81,6 +82,15 @@ createApp({
       buffers.value=Array.isArray(u.items)?u.items:[];
       const q=await loadJson('/api/reconcile'); if(q===null) return;
       recon.value=q&&typeof q==='object'?q:{};
+      const g=await loadJson('/api/contracts/official-log'); if(g===null) return;
+      log.value=Array.isArray(g.items)?g.items:[];
+    }
+    async function enable(c){
+      catErr.value='';
+      const r=await fetch('/api/contracts/enable',{method:'POST',headers:auth(),body:JSON.stringify({version:c.version})});
+      const j=await r.json().catch(()=>({}));
+      catErr.value=r.ok?('已启用 '+c.version+(j.replaced?('，旧正式 '+j.replaced+' 进只读历史'):'')):(j.detail||'启用失败');
+      await refresh();
     }
     async function validate(){
       actionErr.value='';
@@ -89,7 +99,7 @@ createApp({
       await refresh();
     }
     onMounted(()=>{if(token.value)refresh();});
-    return {token,user,username,password,err,tab,nav,contracts,batches,buffers,recon,form,actionErr,login,logout,validate};
+    return {token,user,username,password,err,tab,nav,contracts,batches,buffers,recon,form,actionErr,log,catErr,login,logout,validate,enable};
   },
   template:`
   <div v-if="!token" class="login">
@@ -109,9 +119,16 @@ createApp({
     <div class="steps"><button v-for="(n,i) in nav" :key="n" :class="{on:tab===i}" @click="tab=i">{{i+1}}. {{n}}</button></div>
     <div class="card" v-show="tab===0">
       <h2>现行契约</h2>
-      <table><thead><tr><th>版本</th><th>主题</th><th>模式 / 轨</th><th>状态</th><th>必填字段</th></tr></thead>
+      <table><thead><tr><th>版本</th><th>主题</th><th>模式 / 轨</th><th>状态</th><th>必填字段</th><th>操作</th></tr></thead>
       <tbody><tr v-for="c in contracts" :key="c.id">
         <td>{{c.version}}</td><td>{{c.subject}}</td><td>{{c.mode}} / {{c.track}}</td><td>{{c.status}}</td><td>{{c.required_fields}}</td>
+        <td><span v-if="c.track==='正式' && c.status==='启用'" class="stamp">现行正式</span><button v-else-if="c.track==='正式'" class="ghost" @click="enable(c)">启用为正式</button></td>
+      </tr></tbody></table>
+      <div class="err">{{catErr}}</div>
+      <h2 style="margin-top:14px">正式唯一册</h2>
+      <table><thead><tr><th>#</th><th>主题</th><th>版本</th><th>事件</th><th>值班</th><th>说明</th><th>时间</th></tr></thead>
+      <tbody><tr v-for="e in log" :key="e.id">
+        <td>{{e.id}}</td><td>{{e.subject}}</td><td>{{e.version}}</td><td>{{e.event}}</td><td>{{e.actor}}</td><td>{{e.detail}}</td><td>{{e.created_at}}</td>
       </tr></tbody></table>
     </div>
     <div class="pair" v-show="tab===1">
